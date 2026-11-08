@@ -28,7 +28,10 @@ st.markdown(
     .status { background: #d7eee1; border-radius: 12px; padding: .8rem 1rem; font-weight: 700; font-size: 1.12rem; margin: .7rem 0 1rem; }
     .direction { color: var(--coral); font-size: 1.65rem; }
     .hint { color: #53645d; font-size: .95rem; line-height: 1.35; }
-    .history-box { background: #f3f6ed; border: 2px dashed #9cb49d; border-radius: 10px; padding: .7rem .85rem; white-space: pre-line; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 1rem; line-height: 1.55; }
+    .history-box { background: #f3f6ed; border: 2px dashed #9cb49d; border-radius: 10px; padding: .7rem .85rem; max-height: 12rem; overflow-y: auto; white-space: pre-line; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 1rem; line-height: 1.55; display: flex; flex-direction: column; justify-content: flex-end; }
+    .history-line { padding: .08rem .25rem; border-radius: 5px; }
+    .history-line.changed { background: #fff1c8; animation: history-highlight 1.8s ease-out; }
+    @keyframes history-highlight { from { background: #f4cb62; } to { background: #fff1c8; } }
     .result-box { border-radius: 10px; padding: .75rem .9rem; font-weight: 700; margin-top: .75rem; }
     .result-success { background: #d7eee1; color: #17634e; }
     .result-failure { background: #fff0d4; color: #865625; }
@@ -120,6 +123,8 @@ def reset_explorer():
     st.session_state.turn_origin_position = (1, 5)
     st.session_state.side_mode = False
     st.session_state.side_choice = None
+    st.session_state.history_highlight_until = 0.0
+    st.session_state.history_highlight_index = None
 
 
 def capture_snapshot():
@@ -133,6 +138,8 @@ def capture_snapshot():
             "turn_origin_position": st.session_state.turn_origin_position,
             "side_mode": st.session_state.side_mode,
             "side_choice": st.session_state.side_choice,
+            "history_highlight_until": st.session_state.history_highlight_until,
+            "history_highlight_index": st.session_state.history_highlight_index,
         }
     )
 
@@ -145,14 +152,33 @@ def clear_side_choice():
 
 
 def commit_pending_turn():
-    turn_steps = st.session_state.pending_turn_steps % 4
-    turn_action = {1: "Turn right", 2: "Turn around", 3: "Turn left"}.get(turn_steps)
-    if turn_action:
-        st.session_state.move_history.append(turn_action)
     st.session_state.pending_turn_steps = 0
     st.session_state.pending_turn_origin = st.session_state.direction
     st.session_state.turn_origin_position = st.session_state.position
     st.session_state.side_mode = False
+
+
+def mark_history_change(index):
+    st.session_state.history_highlight_index = index
+    st.session_state.history_highlight_until = time.monotonic() + 1.8
+
+
+def update_turn_history():
+    turn_steps = st.session_state.pending_turn_steps % 4
+    turn_action = {1: "Turn right", 2: "Turn around", 3: "Turn left"}.get(turn_steps)
+    turn_actions = ("Turn left", "Turn right", "Turn around")
+    if turn_action:
+        if st.session_state.move_history and st.session_state.move_history[-1] in turn_actions:
+            st.session_state.move_history[-1] = turn_action
+            mark_history_change(len(st.session_state.move_history) - 1)
+        else:
+            st.session_state.move_history.append(turn_action)
+            mark_history_change(len(st.session_state.move_history) - 1)
+    elif st.session_state.move_history and st.session_state.move_history[-1] in turn_actions:
+        st.session_state.move_history.pop()
+        st.session_state.history_highlight_index = None
+    if not turn_action:
+        st.session_state.history_highlight_until = time.monotonic() + 1.8
 
 
 def turn(step):
@@ -166,6 +192,7 @@ def turn(step):
     st.session_state.direction = DIRECTIONS[(current + step) % len(DIRECTIONS)]
     st.session_state.position = st.session_state.turn_origin_position
     st.session_state.side_mode = st.session_state.pending_turn_steps != 0
+    update_turn_history()
     st.session_state.result_message = ""
     st.session_state.result_success = False
 
@@ -183,6 +210,7 @@ def move_forward():
         clear_side_choice()
         commit_pending_turn()
         st.session_state.move_history.append("Go straight")
+        mark_history_change(len(st.session_state.move_history) - 1)
         st.session_state.position = next_position
         st.session_state.result_message = ""
         st.session_state.result_success = False
@@ -201,6 +229,8 @@ def undo_action():
     st.session_state.turn_origin_position = snapshot["turn_origin_position"]
     st.session_state.side_mode = snapshot["side_mode"]
     st.session_state.side_choice = snapshot["side_choice"]
+    st.session_state.history_highlight_until = snapshot.get("history_highlight_until", 0.0)
+    st.session_state.history_highlight_index = snapshot.get("history_highlight_index")
     st.session_state.result_message = ""
     st.session_state.result_success = False
 
@@ -214,9 +244,15 @@ def grouped_history(history):
             groups.append((action, 1))
     number_words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
     lines = []
+    highlight_index = st.session_state.history_highlight_index
+    highlight_active = time.monotonic() < st.session_state.history_highlight_until
+    raw_index = 0
     for index, (action, count) in enumerate(groups, 1):
         distance = f" {number_words.get(count, str(count))} blocks" if action == "Go straight" and count > 1 else ""
-        lines.append(f"{index}. {action}{distance}.")
+        is_highlighted = highlight_active and highlight_index is not None and raw_index <= highlight_index < raw_index + count
+        line_class = "history-line changed" if is_highlighted else "history-line"
+        lines.append(f'<div class="{line_class}">{index}. {action}{distance}.</div>')
+        raw_index += count
     return "\n".join(lines)
 
 
@@ -244,6 +280,7 @@ def choose_target_side(target, side):
         st.session_state.move_history[-1] = side_action
     else:
         st.session_state.move_history.append(side_action)
+    mark_history_change(len(st.session_state.move_history) - 1)
     st.session_state.side_choice = side
     st.session_state.result_message = ""
     st.session_state.result_success = False
@@ -268,6 +305,7 @@ def choose_target_side(target, side):
 for key, default in (
     ("position", (1, 5)), ("direction", "N"), ("trees", set()), ("last_move", 0.0),
     ("move_history", []), ("action_snapshots", []), ("result_message", ""), ("result_success", False),
+    ("history_highlight_until", 0.0), ("history_highlight_index", None),
     ("show_side_choice", False), ("pending_turn_steps", 0), ("pending_turn_origin", "N"),
     ("turn_origin_position", (1, 5)), ("side_mode", False), ("side_choice", None),
 ):
@@ -311,6 +349,20 @@ with control_column:
     else:
         selected_target = st.session_state.get("answer_target", "선택하세요")
         st.markdown('<div class="hint">목표 지점은 숨겨져 있습니다. 친구의 발표를 들으며 이동하세요.</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="panel"><div class="panel-title">이동 기록</div>', unsafe_allow_html=True)
+    if st.session_state.move_history:
+        history_html = grouped_history(st.session_state.move_history)
+        st.markdown(
+            f'<div id="history-box" class="history-box">{history_html}</div>'
+            '<script>const box = document.getElementById("history-box"); '
+            'if (box) requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });</script>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('<div class="hint">연속으로 누른 Go straight는 한 문장으로 묶어 표시합니다.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="hint">아직 이동 기록이 없습니다.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="panel"><div class="panel-title">캐릭터 이동</div>', unsafe_allow_html=True)
@@ -366,14 +418,6 @@ with control_column:
             if st.button("It's on your right.", use_container_width=True):
                 choose_target_side(selected_target, "right")
                 st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="panel"><div class="panel-title">이동 기록</div>', unsafe_allow_html=True)
-    if st.session_state.move_history:
-        st.markdown(f'<div class="history-box">{grouped_history(st.session_state.move_history)}</div>', unsafe_allow_html=True)
-        st.markdown('<div class="hint">연속으로 누른 Go straight는 한 문장으로 묶어 표시합니다.</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="hint">아직 이동 기록이 없습니다.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     if st.session_state.result_message:
