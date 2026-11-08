@@ -369,9 +369,26 @@ if (
 ):
     reset_explorer()
 
-st.markdown('<div class="eyebrow">초등학교 5학년 영어 · 길 안내 활동</div>', unsafe_allow_html=True)
-st.title("길 안내 지도")
-st.markdown('<div class="subtitle">친구의 안내를 듣고 이동해 목적지를 찾아보세요.</div>', unsafe_allow_html=True)
+top_title, top_mode, top_target, top_help = st.columns([1.1, 1.15, 1.1, .45], gap="small")
+with top_title:
+    st.markdown('<div class="topbar"><div class="topbar-title"><div class="eyebrow">영어 길 안내 활동</div><h1>길 안내 지도</h1></div></div>', unsafe_allow_html=True)
+with top_mode:
+    activity_mode = st.radio(
+        "활동 모드",
+        ("경로 준비", "발표 듣고 찾기"),
+        key="activity_mode",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+with top_target:
+    if activity_mode == "경로 준비":
+        selected_target = st.selectbox("목표 지점", ("선택하세요",) + TARGET_LABELS, key="prep_target", label_visibility="collapsed")
+    else:
+        selected_target = st.session_state.get("answer_target", "선택하세요")
+        st.markdown('<div class="hint">발표 듣고 지도에서 장소를 선택하세요.</div>', unsafe_allow_html=True)
+with top_help:
+    with st.expander("도움말"):
+        st.markdown("Turn으로 방향을 바꾸고 Go straight로 이동하세요. 발표 모드에서는 장소를 두 번 눌러 정답을 확인합니다.")
 
 map_column, control_column = st.columns([1.8, 1], gap="large")
 with map_column:
@@ -415,20 +432,6 @@ with map_column:
     st.markdown('<div class="legend"><span><i class="dot road-dot"></i> 도로</span><span><i class="dot building-dot"></i> 장소</span><span><i class="dot pin-dot"></i> 나무 심기 지점</span></div>', unsafe_allow_html=True)
 
 with control_column:
-    st.markdown('<div class="panel compact-panel"><div class="panel-title">활동 모드</div>', unsafe_allow_html=True)
-    activity_mode = st.radio(
-        "활동 모드",
-        ("경로 준비", "발표 듣고 찾기"),
-        key="activity_mode",
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-    if activity_mode == "경로 준비":
-        selected_target = st.selectbox("목표 지점", ("선택하세요",) + TARGET_LABELS, key="prep_target")
-    else:
-        selected_target = st.session_state.get("answer_target", "선택하세요")
-    st.markdown('</div>', unsafe_allow_html=True)
-
     st.markdown('<div class="panel"><div class="panel-title">이동 기록</div>', unsafe_allow_html=True)
     if st.session_state.move_history:
         history_html = grouped_history(st.session_state.move_history)
@@ -484,14 +487,26 @@ with control_column:
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('<div class="result-slot">', unsafe_allow_html=True)
     if st.session_state.result_message:
         result_class = "result-success" if st.session_state.result_success else "result-failure"
         st.markdown(f'<div class="result-box {result_class}">{st.session_state.result_message}</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="panel"><div class="panel-title">나무 표시</div><div class="hint">목표 지점에 정확히 도착하면 큰 나무가 자동으로 표시됩니다.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="clear-button">', unsafe_allow_html=True)
-    if st.button("나무 모두 지우기", use_container_width=True):
-        st.session_state.trees.clear()
-        st.rerun()
-    st.markdown('</div></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
+
+    undo_column, reset_column, clear_column = st.columns(3)
+    with undo_column:
+        if st.button("↶ 되돌리기", use_container_width=True, disabled=not st.session_state.move_history):
+            undo_action()
+            st.rerun()
+    with reset_column:
+        if st.button("↺ 처음으로", use_container_width=True):
+            reset_explorer()
+            st.session_state.move_history.clear()
+            st.session_state.action_snapshots.clear()
+            st.session_state.result_message = ""
+            st.session_state.result_success = False
+            st.rerun()
+    with clear_column:
+        if st.button("🌳 나무 지우기", use_container_width=True):
+            st.session_state.trees.clear()
+            st.rerun()
