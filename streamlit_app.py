@@ -25,6 +25,7 @@ st.markdown(
     .topbar-title { min-width: 12rem; }
     .topbar .stRadio, .topbar .stSelectbox { margin: 0; }
     .map-frame { background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; padding: 6px; box-shadow: 5px 5px 0 #c6d9cd; height: calc(100dvh - 8.5rem); max-height: 730px; }
+    .map-frame.answer-map-frame { height: calc(100dvh - 13rem); }
     .map-frame svg { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 10px; }
     .panel { background: #fffdf7; border: 2px solid #d6e0d7; border-radius: 14px; padding: .65rem .8rem; margin-bottom: .55rem; }
     .compact-panel { padding: .45rem .65rem; margin-bottom: .45rem; }
@@ -403,8 +404,9 @@ with map_column:
         if current_activity_mode == "발표 듣고 찾기"
         else None
     )
+    map_frame_class = "map-frame answer-map-frame" if current_activity_mode == "발표 듣고 찾기" else "map-frame"
     st.markdown(
-        '<div class="map-frame">'
+        f'<div class="{map_frame_class}">'
         + map_svg(
             st.session_state.position,
             st.session_state.direction,
@@ -468,24 +470,6 @@ with control_column:
             if st.button("It's on your right.", use_container_width=True):
                 choose_target_side(selected_target, "right")
                 st.rerun()
-
-    undo_column, reset_column = st.columns(2)
-    with undo_column:
-        st.markdown('<div class="undo-button">', unsafe_allow_html=True)
-        if st.button("↶ 한 단계 되돌리기", use_container_width=True, disabled=not st.session_state.move_history):
-            undo_action()
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with reset_column:
-        st.markdown('<div class="reset-button">', unsafe_allow_html=True)
-        if st.button("↺ 처음으로", use_container_width=True):
-            reset_explorer()
-            st.session_state.move_history.clear()
-            st.session_state.action_snapshots.clear()
-            st.session_state.result_message = ""
-            st.session_state.result_success = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="result-slot">', unsafe_allow_html=True)
     if st.session_state.result_message:
