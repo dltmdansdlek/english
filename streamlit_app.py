@@ -122,6 +122,16 @@ for key, default in (("position", (1, 2)), ("direction", "N"), ("trees", set()),
     if key not in st.session_state:
         st.session_state[key] = default
 
+position = st.session_state.position
+if (
+    not isinstance(position, (tuple, list))
+    or len(position) != 2
+    or not all(isinstance(value, int) for value in position)
+    or not 0 <= position[0] < len(ROAD_X)
+    or not 0 <= position[1] < len(ROAD_Y)
+):
+    reset_explorer()
+
 st.markdown('<div class="eyebrow">초등학교 5학년 영어 · 길 안내 활동</div>', unsafe_allow_html=True)
 st.title("길 안내 지도")
 st.markdown('<div class="subtitle">친구의 안내를 듣고 이동해 목적지를 찾아보세요.</div>', unsafe_allow_html=True)
