@@ -21,9 +21,11 @@ st.markdown(
     h1 { color: var(--ink); font-size: 1.65rem !important; line-height: 1 !important; letter-spacing: 0 !important; margin: 0 !important; }
     .eyebrow { color: var(--teal); font-weight: 700; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
     .subtitle { color: #53645d; font-size: .85rem; margin: 0; }
-    .topbar { display: flex; align-items: center; gap: .7rem; min-height: 3rem; margin-bottom: .35rem; }
+    .topbar { display: flex; align-items: center; gap: .7rem; min-height: 3rem; margin-bottom: .25rem; }
     .topbar-title { min-width: 12rem; }
     .topbar .stRadio, .topbar .stSelectbox { margin: 0; }
+    .mode-panel { display: flex; align-items: center; gap: .75rem; background: #fffdf7; border: 2px solid #d6e0d7; border-radius: 12px; padding: .35rem .65rem; margin-bottom: .55rem; }
+    .mode-label { font-family: 'Baloo 2'; font-size: 1.05rem; font-weight: 700; white-space: nowrap; }
     .map-frame { background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; padding: 6px; box-shadow: 5px 5px 0 #c6d9cd; height: calc(100dvh - 8.5rem); max-height: 730px; }
     .map-frame.answer-map-frame { height: calc(100dvh - 13rem); }
     .map-frame svg { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 10px; }
@@ -71,6 +73,7 @@ BUILDINGS = [
     ("Library", "📖", 48, 242), ("Fruit Store", "🍎", 292, 242), ("Bank", "🏦", 536, 242), ("Zoo", "🦁", 780, 242),
     ("Ice Cream Shop", "🍦", 48, 434), ("Bike Shop", "🚲", 292, 434), ("Shoe Store", "👟", 536, 434), ("Flower Shop", "🌷", 780, 434),
 ]
+BUILDING_ICONS = {name: icon for name, icon, _, _ in BUILDINGS}
 ROAD_X = (265, 509, 753)
 # Every character position is the center of a four-way intersection.
 # Even levels are beside buildings; odd levels are four-way intersections.
@@ -370,10 +373,16 @@ if (
 ):
     reset_explorer()
 
-top_title, top_mode, top_target, top_help = st.columns([1.1, 1.15, 1.1, .45], gap="small")
+top_title, top_help = st.columns([4, 1], gap="small")
 with top_title:
     st.markdown('<div class="topbar"><div class="topbar-title"><div class="eyebrow">영어 길 안내 활동</div><h1>길 안내 지도</h1></div></div>', unsafe_allow_html=True)
-with top_mode:
+with top_help:
+    with st.expander("도움말"):
+        st.markdown("Turn으로 방향을 바꾸고 Go straight로 이동하세요. 발표 모드에서는 장소를 두 번 눌러 정답을 확인합니다.")
+
+st.markdown('<div class="mode-panel"><span class="mode-label">활동 모드</span>', unsafe_allow_html=True)
+mode_column, target_column = st.columns([1.35, 1], gap="small")
+with mode_column:
     activity_mode = st.radio(
         "활동 모드",
         ("경로 준비", "발표 듣고 찾기"),
@@ -381,15 +390,13 @@ with top_mode:
         horizontal=True,
         label_visibility="collapsed",
     )
-with top_target:
+with target_column:
     if activity_mode == "경로 준비":
         selected_target = st.selectbox("목표 지점", ("선택하세요",) + TARGET_LABELS, key="prep_target", label_visibility="collapsed")
     else:
         selected_target = st.session_state.get("answer_target", "선택하세요")
         st.markdown('<div class="hint">발표 듣고 지도에서 장소를 선택하세요.</div>', unsafe_allow_html=True)
-with top_help:
-    with st.expander("도움말"):
-        st.markdown("Turn으로 방향을 바꾸고 Go straight로 이동하세요. 발표 모드에서는 장소를 두 번 눌러 정답을 확인합니다.")
+st.markdown('</div>', unsafe_allow_html=True)
 
 map_column, control_column = st.columns([1.8, 1], gap="large")
 with map_column:
@@ -422,7 +429,7 @@ with map_column:
         place_columns = st.columns(5)
         for index, place in enumerate(TARGET_LABELS):
             with place_columns[index % 5]:
-                button_label = f"{place}\n{dict(BUILDINGS).get(place, '')}"
+                button_label = f"{place}\n{BUILDING_ICONS.get(place, '')}"
                 if st.button(
                     button_label,
                     key=f"answer-place-{place}",
