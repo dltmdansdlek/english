@@ -67,15 +67,14 @@ PINS = {
     "I": (238, 496), "J": (780, 496),
 }
 TARGET_POSITIONS = {
-    "A": (0, 0), "B": (0, 0), "C": (2, 0), "D": (2, 0),
-    "E": (0, 2), "F": (0, 2), "G": (2, 2), "H": (2, 2),
-    "I": (0, 4), "J": (2, 4),
+    "A": (0, 1), "B": (0, 1), "C": (2, 1), "D": (2, 1),
+    "E": (0, 3), "F": (0, 3), "G": (2, 3), "H": (2, 3),
+    "I": (0, 5), "J": (2, 5),
 }
-TARGET_SIDES = {"A": "left", "B": "right", "C": "left", "D": "right", "E": "left", "F": "right", "G": "left", "H": "right", "I": "left", "J": "right"}
 TARGET_LABELS = tuple(PINS)
 
 
-def map_svg(position, direction, trees):
+def map_svg(position, direction, trees, side_mode):
     parts = [
         '<svg viewBox="0 0 1000 730" role="img" aria-label="Town map with twelve places and ten planting points">',
         '<rect width="1000" height="730" fill="#d9efdf"/>',
@@ -101,6 +100,11 @@ def map_svg(position, direction, trees):
             parts.append(f'<text x="{x + 25}" y="{y - 18}" font-size="30">{tree}</text>')
     lane, level = position
     px, py = ROAD_X[lane], ROAD_Y[level]
+    if side_mode:
+        side_dx = {"E": 34, "W": -34}.get(direction, 0)
+        side_dy = {"N": -34, "S": 34}.get(direction, 0)
+        px += side_dx
+        py += side_dy
     parts.append(f'<circle cx="{px}" cy="{py}" r="27" fill="#ef745e" stroke="#20302b" stroke-width="4"/>')
     parts.append(f'<text x="{px}" y="{py + 10}" text-anchor="middle" font-size="34" font-weight="700" fill="white">{ARROWS[direction]}</text>')
     parts.append('<text x="509" y="632" text-anchor="middle" font-family="Atkinson Hyperlegible" font-size="16" font-weight="700" fill="#53645d">START</text>')
@@ -111,19 +115,59 @@ def map_svg(position, direction, trees):
 def reset_explorer():
     st.session_state.position = (1, 5)
     st.session_state.direction = "N"
+    st.session_state.pending_turn_steps = 0
+    st.session_state.pending_turn_origin = "N"
+    st.session_state.turn_origin_position = (1, 5)
+    st.session_state.side_mode = False
+    st.session_state.side_choice = None
 
 
-def remember_action(action):
-    st.session_state.action_snapshots.append((st.session_state.position, st.session_state.direction))
-    st.session_state.move_history.append(action)
-    st.session_state.result_message = ""
-    st.session_state.result_success = False
+def capture_snapshot():
+    st.session_state.action_snapshots.append(
+        {
+            "position": st.session_state.position,
+            "direction": st.session_state.direction,
+            "move_history": list(st.session_state.move_history),
+            "pending_turn_steps": st.session_state.pending_turn_steps,
+            "pending_turn_origin": st.session_state.pending_turn_origin,
+            "turn_origin_position": st.session_state.turn_origin_position,
+            "side_mode": st.session_state.side_mode,
+            "side_choice": st.session_state.side_choice,
+        }
+    )
+
+
+def clear_side_choice():
+    if st.session_state.side_choice is not None:
+        if st.session_state.move_history and st.session_state.move_history[-1].startswith("It's on your"):
+            st.session_state.move_history.pop()
+        st.session_state.side_choice = None
+
+
+def commit_pending_turn():
+    turn_steps = st.session_state.pending_turn_steps % 4
+    turn_action = {1: "Turn right", 2: "Turn around", 3: "Turn left"}.get(turn_steps)
+    if turn_action:
+        st.session_state.move_history.append(turn_action)
+    st.session_state.pending_turn_steps = 0
+    st.session_state.pending_turn_origin = st.session_state.direction
+    st.session_state.turn_origin_position = st.session_state.position
+    st.session_state.side_mode = False
 
 
 def turn(step):
+    capture_snapshot()
+    clear_side_choice()
+    if st.session_state.pending_turn_steps == 0:
+        st.session_state.pending_turn_origin = st.session_state.direction
+        st.session_state.turn_origin_position = st.session_state.position
     current = DIRECTIONS.index(st.session_state.direction)
-    remember_action("Turn left" if step < 0 else "Turn right")
+    st.session_state.pending_turn_steps = (st.session_state.pending_turn_steps + step) % 4
     st.session_state.direction = DIRECTIONS[(current + step) % len(DIRECTIONS)]
+    st.session_state.position = st.session_state.turn_origin_position
+    st.session_state.side_mode = st.session_state.pending_turn_steps != 0
+    st.session_state.result_message = ""
+    st.session_state.result_success = False
 
 
 def move_forward():
@@ -131,20 +175,32 @@ def move_forward():
     if now - st.session_state.last_move < 0.3:
         return
     lane, level = st.session_state.position
-    changes = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
+    changes = {"N": (0, -2), "S": (0, 2), "E": (1, 0), "W": (-1, 0)}
     lane_change, level_change = changes[st.session_state.direction]
     next_position = (lane + lane_change, level + level_change)
     if 0 <= next_position[0] < len(ROAD_X) and 0 <= next_position[1] < len(ROAD_Y):
-        remember_action("Go straight")
+        capture_snapshot()
+        clear_side_choice()
+        commit_pending_turn()
+        st.session_state.move_history.append("Go straight")
         st.session_state.position = next_position
+        st.session_state.result_message = ""
+        st.session_state.result_success = False
     st.session_state.last_move = now
 
 
 def undo_action():
     if not st.session_state.action_snapshots:
         return
-    st.session_state.position, st.session_state.direction = st.session_state.action_snapshots.pop()
-    st.session_state.move_history.pop()
+    snapshot = st.session_state.action_snapshots.pop()
+    st.session_state.position = snapshot["position"]
+    st.session_state.direction = snapshot["direction"]
+    st.session_state.move_history = snapshot["move_history"]
+    st.session_state.pending_turn_steps = snapshot["pending_turn_steps"]
+    st.session_state.pending_turn_origin = snapshot["pending_turn_origin"]
+    st.session_state.turn_origin_position = snapshot["turn_origin_position"]
+    st.session_state.side_mode = snapshot["side_mode"]
+    st.session_state.side_choice = snapshot["side_choice"]
     st.session_state.result_message = ""
     st.session_state.result_success = False
 
@@ -165,31 +221,42 @@ def grouped_history(history):
 
 
 def target_side_from_position(target, position, direction):
-    lane, _ = position
+    lane, level = position
     target_x, _ = PINS[target]
     road_x = ROAD_X[lane]
     if direction == "N":
         return "left" if target_x < road_x else "right"
     if direction == "S":
         return "right" if target_x < road_x else "left"
+    target_y = PINS[target][1]
+    road_y = ROAD_Y[level]
+    if direction == "E":
+        return "left" if target_y < road_y else "right"
+    if direction == "W":
+        return "left" if target_y > road_y else "right"
     return None
 
 
 def choose_target_side(target, side):
-    remember_action(f"It's on your {side}.")
+    capture_snapshot()
+    side_action = f"It's on your {side}."
+    if st.session_state.move_history and st.session_state.move_history[-1].startswith("It's on your"):
+        st.session_state.move_history[-1] = side_action
+    else:
+        st.session_state.move_history.append(side_action)
+    st.session_state.side_choice = side
+    st.session_state.result_message = ""
+    st.session_state.result_success = False
     if target == "선택하세요":
         st.session_state.result_message = "먼저 목표 지점을 선택해 주세요."
         st.session_state.result_success = False
-    elif st.session_state.position[1] % 2 == 1:
+    elif not st.session_state.side_mode:
         st.session_state.result_message = "건물 옆까지 이동한 뒤 방향을 선택해 주세요."
         st.session_state.result_success = False
     elif st.session_state.position != TARGET_POSITIONS[target]:
         st.session_state.result_message = f"아직 {target} 지점 옆이 아니에요. 이동 기록과 현재 위치를 살펴보세요."
         st.session_state.result_success = False
     elif target_side_from_position(target, st.session_state.position, st.session_state.direction) != side:
-        st.session_state.result_message = "목적지가 어느 쪽에 있는지 다시 확인해 보세요."
-        st.session_state.result_success = False
-    elif TARGET_SIDES[target] != side:
         st.session_state.result_message = "목적지가 어느 쪽에 있는지 다시 확인해 보세요."
         st.session_state.result_success = False
     else:
@@ -201,10 +268,14 @@ def choose_target_side(target, side):
 for key, default in (
     ("position", (1, 5)), ("direction", "N"), ("trees", set()), ("last_move", 0.0),
     ("move_history", []), ("action_snapshots", []), ("result_message", ""), ("result_success", False),
-    ("show_side_choice", False),
+    ("show_side_choice", False), ("pending_turn_steps", 0), ("pending_turn_origin", "N"),
+    ("turn_origin_position", (1, 5)), ("side_mode", False), ("side_choice", None),
 ):
     if key not in st.session_state:
         st.session_state[key] = default
+
+if not all(isinstance(snapshot, dict) for snapshot in st.session_state.action_snapshots):
+    st.session_state.action_snapshots = []
 
 position = st.session_state.position
 if (
@@ -222,7 +293,7 @@ st.markdown('<div class="subtitle">친구의 안내를 듣고 이동해 목적�
 
 map_column, control_column = st.columns([1.8, 1], gap="large")
 with map_column:
-    st.markdown('<div class="map-frame">' + map_svg(st.session_state.position, st.session_state.direction, st.session_state.trees) + '</div>', unsafe_allow_html=True)
+    st.markdown('<div class="map-frame">' + map_svg(st.session_state.position, st.session_state.direction, st.session_state.trees, st.session_state.side_mode) + '</div>', unsafe_allow_html=True)
     st.markdown('<div class="legend"><span><i class="dot road-dot"></i> 도로</span><span><i class="dot building-dot"></i> 장소</span><span><i class="dot pin-dot"></i> 나무 심기 지점</span></div>', unsafe_allow_html=True)
 
 with control_column:
@@ -258,7 +329,7 @@ with control_column:
         if st.button("↷\nTurn right", use_container_width=True):
             turn(1)
             st.rerun()
-    st.markdown('<div class="hint">왼쪽·오른쪽 버튼은 캐릭터의 방향만 바꿉니다. 위치는 이동하지 않습니다.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hint">회전하면 해당 방향의 가로 도로 쪽으로 이동해 양옆 장소를 살펴볼 수 있습니다. 다시 회전하면 처음 사거리 기준으로 위치를 바꿉니다.</div>', unsafe_allow_html=True)
     undo_column, reset_column = st.columns(2)
     with undo_column:
         st.markdown('<div class="undo-button">', unsafe_allow_html=True)
