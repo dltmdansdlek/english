@@ -28,12 +28,17 @@ st.markdown(
     .status { background: #d7eee1; border-radius: 12px; padding: .8rem 1rem; font-weight: 700; font-size: 1.12rem; margin: .7rem 0 1rem; }
     .direction { color: var(--coral); font-size: 1.65rem; }
     .hint { color: #53645d; font-size: .95rem; line-height: 1.35; }
+    .history-box { background: #f3f6ed; border: 2px dashed #9cb49d; border-radius: 10px; padding: .7rem .85rem; white-space: pre-line; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 1rem; line-height: 1.55; }
+    .result-box { border-radius: 10px; padding: .75rem .9rem; font-weight: 700; margin-top: .75rem; }
+    .result-success { background: #d7eee1; color: #17634e; }
+    .result-failure { background: #fff0d4; color: #865625; }
     .stButton > button { border: 2px solid var(--ink); border-radius: 10px; min-height: 3.8rem; font-size: 1.12rem; font-weight: 700; color: var(--ink); background: #fffdf7; box-shadow: 0 4px 0 var(--ink); transition: transform .12s, box-shadow .12s; }
     .stButton > button:hover { border-color: var(--ink); color: var(--ink); background: #fff1c8; transform: translateY(2px); box-shadow: 0 2px 0 var(--ink); }
     .stButton > button:active { transform: translateY(4px); box-shadow: none; }
     .reset-button button { background: var(--coral) !important; color: white !important; }
     .tree-button button { min-height: 2.75rem; font-size: 1rem; background: #edf5e6; box-shadow: 0 3px 0 #77967b; }
     .clear-button button { min-height: 2.75rem; font-size: 1rem; background: #edf0ea; box-shadow: 0 3px 0 #7b8980; }
+    .undo-button button { min-height: 2.75rem; font-size: 1rem; background: #fff1c8; box-shadow: 0 3px 0 #a98134; }
     .legend { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .75rem; color: #53645d; font-size: .95rem; }
     .legend span { display: inline-flex; align-items: center; gap: .35rem; }
     .dot { width: .8rem; height: .8rem; display: inline-block; border-radius: 50%; border: 2px solid var(--ink); }
@@ -60,6 +65,12 @@ PINS = {
     "E": (238, 304), "F": (292, 304), "G": (726, 304), "H": (780, 304),
     "I": (238, 496), "J": (780, 496),
 }
+TARGET_POSITIONS = {
+    "A": (0, 0), "B": (0, 0), "C": (2, 0), "D": (2, 0),
+    "E": (0, 1), "F": (0, 1), "G": (2, 1), "H": (2, 1),
+    "I": (0, 2), "J": (2, 2),
+}
+TARGET_LABELS = tuple(PINS)
 
 
 def map_svg(position, direction, trees):
@@ -100,8 +111,14 @@ def reset_explorer():
     st.session_state.direction = "N"
 
 
+def remember_action(action):
+    st.session_state.action_snapshots.append((st.session_state.position, st.session_state.direction))
+    st.session_state.move_history.append(action)
+
+
 def turn(step):
     current = DIRECTIONS.index(st.session_state.direction)
+    remember_action("Turn left" if step < 0 else "Turn right")
     st.session_state.direction = DIRECTIONS[(current + step) % len(DIRECTIONS)]
 
 
@@ -114,11 +131,39 @@ def move_forward():
     lane_change, level_change = changes[st.session_state.direction]
     next_position = (lane + lane_change, level + level_change)
     if 0 <= next_position[0] < len(ROAD_X) and 0 <= next_position[1] < len(ROAD_Y):
+        remember_action("Go straight")
         st.session_state.position = next_position
     st.session_state.last_move = now
 
 
-for key, default in (("position", (1, 2)), ("direction", "N"), ("trees", set()), ("last_move", 0.0)):
+def undo_action():
+    if not st.session_state.action_snapshots:
+        return
+    st.session_state.position, st.session_state.direction = st.session_state.action_snapshots.pop()
+    st.session_state.move_history.pop()
+    st.session_state.result_message = ""
+    st.session_state.result_success = False
+
+
+def grouped_history(history):
+    groups = []
+    for action in history:
+        if groups and groups[-1][0] == action:
+            groups[-1] = (action, groups[-1][1] + 1)
+        else:
+            groups.append((action, 1))
+    number_words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
+    lines = []
+    for index, (action, count) in enumerate(groups, 1):
+        distance = f" {number_words.get(count, str(count))} blocks" if action == "Go straight" and count > 1 else ""
+        lines.append(f"{index}. {action}{distance}.")
+    return "\n".join(lines)
+
+
+for key, default in (
+    ("position", (1, 2)), ("direction", "N"), ("trees", set()), ("last_move", 0.0),
+    ("move_history", []), ("action_snapshots", []), ("result_message", ""), ("result_success", False),
+):
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -142,6 +187,22 @@ with map_column:
     st.markdown('<div class="legend"><span><i class="dot road-dot"></i> 도로</span><span><i class="dot building-dot"></i> 장소</span><span><i class="dot pin-dot"></i> 나무 심기 지점</span></div>', unsafe_allow_html=True)
 
 with control_column:
+    st.markdown('<div class="panel"><div class="panel-title">활동 모드</div>', unsafe_allow_html=True)
+    activity_mode = st.radio(
+        "활동 모드",
+        ("경로 준비", "발표 듣고 찾기"),
+        key="activity_mode",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if activity_mode == "경로 준비":
+        selected_target = st.selectbox("목표 지점", ("선택하세요",) + TARGET_LABELS, key="prep_target")
+        st.markdown('<div class="hint">이동하기 전에 나무를 심을 목표 지점을 선택하세요.</div>', unsafe_allow_html=True)
+    else:
+        selected_target = st.session_state.get("answer_target", "선택하세요")
+        st.markdown('<div class="hint">목표 지점은 숨겨져 있습니다. 친구의 발표를 들으며 이동하세요.</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown('<div class="panel"><div class="panel-title">캐릭터 이동</div>', unsafe_allow_html=True)
     facing = {"N": "북쪽", "E": "동쪽", "S": "남쪽", "W": "서쪽"}[st.session_state.direction]
     st.markdown(f'<div class="status">현재 바라보는 방향 <span class="direction">{ARROWS[st.session_state.direction]}</span> {facing}<br><small>한 번 누르면 한 블록 이동합니다.</small></div>', unsafe_allow_html=True)
@@ -159,28 +220,57 @@ with control_column:
             turn(1)
             st.rerun()
     st.markdown('<div class="hint">왼쪽·오른쪽 버튼은 캐릭터의 방향만 바꿉니다. 위치는 이동하지 않습니다.</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="panel"><div class="panel-title">정답을 확인한 뒤</div><div class="hint">발표가 끝난 뒤 나무를 심을 지점을 선택하세요.</div>', unsafe_allow_html=True)
-    point_columns = st.columns(5)
-    for index, label in enumerate(PINS):
-        with point_columns[index % 5]:
-            st.markdown('<div class="tree-button">', unsafe_allow_html=True)
-            if st.button(f"🌳 {label}", key=f"tree_{label}", use_container_width=True):
-                st.session_state.trees.add(label)
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-    clear_column, reset_column = st.columns(2)
-    with clear_column:
-        st.markdown('<div class="clear-button">', unsafe_allow_html=True)
-        if st.button("나무 모두 지우기", use_container_width=True):
-            st.session_state.trees.clear()
+    undo_column, reset_column = st.columns(2)
+    with undo_column:
+        st.markdown('<div class="undo-button">', unsafe_allow_html=True)
+        if st.button("↶ 한 단계 되돌리기", use_container_width=True, disabled=not st.session_state.move_history):
+            undo_action()
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with reset_column:
         st.markdown('<div class="reset-button">', unsafe_allow_html=True)
-        if st.button("↺ 처음으로", use_container_width=True):
+        if st.button("↺ 다시 하기", use_container_width=True):
             reset_explorer()
+            st.session_state.move_history.clear()
+            st.session_state.action_snapshots.clear()
+            st.session_state.result_message = ""
+            st.session_state.result_success = False
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="panel"><div class="panel-title">이동 기록</div>', unsafe_allow_html=True)
+    if st.session_state.move_history:
+        st.markdown(f'<div class="history-box">{grouped_history(st.session_state.move_history)}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="hint">연속으로 누른 Go straight는 한 문장으로 묶어 표시합니다.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="hint">아직 이동 기록이 없습니다.</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="panel"><div class="panel-title">도착 확인</div>', unsafe_allow_html=True)
+    if activity_mode == "발표 듣고 찾기":
+        selected_target = st.selectbox("발표가 끝난 뒤 정답 지점", ("선택하세요",) + TARGET_LABELS, key="answer_target")
+    if st.button("도착 확인", use_container_width=True):
+        if selected_target == "선택하세요":
+            st.session_state.result_message = "먼저 목표 지점을 선택해 주세요."
+            st.session_state.result_success = False
+        elif st.session_state.position == TARGET_POSITIONS[selected_target]:
+            st.session_state.result_message = f"{selected_target} 지점에 도착했어요!"
+            st.session_state.result_success = True
+            st.session_state.trees.add(selected_target)
+        else:
+            st.session_state.result_message = f"아직 {selected_target} 지점이 아니에요. 이동 기록과 현재 위치를 살펴보세요."
+            st.session_state.result_success = False
+        st.rerun()
+    if st.session_state.result_message:
+        result_class = "result-success" if st.session_state.result_success else "result-failure"
+        st.markdown(f'<div class="result-box {result_class}">{st.session_state.result_message}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="panel"><div class="panel-title">나무 표시</div><div class="hint">목표 지점에 정확히 도착하면 큰 나무가 자동으로 표시됩니다.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="clear-button">', unsafe_allow_html=True)
+    if st.button("나무 모두 지우기", use_container_width=True):
+        st.session_state.trees.clear()
+        st.rerun()
+    st.markdown('</div></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
