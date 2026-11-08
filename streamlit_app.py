@@ -70,6 +70,10 @@ TARGET_POSITIONS = {
     "E": (0, 1), "F": (0, 1), "G": (2, 1), "H": (2, 1),
     "I": (0, 2), "J": (2, 2),
 }
+TARGET_DIRECTIONS = {
+    "A": "N", "B": "S", "C": "N", "D": "S", "E": "N",
+    "F": "S", "G": "N", "H": "S", "I": "N", "J": "S",
+}
 TARGET_LABELS = tuple(PINS)
 
 
@@ -254,7 +258,10 @@ with control_column:
         if selected_target == "선택하세요":
             st.session_state.result_message = "먼저 목표 지점을 선택해 주세요."
             st.session_state.result_success = False
-        elif st.session_state.position == TARGET_POSITIONS[selected_target]:
+        elif (
+            st.session_state.position == TARGET_POSITIONS[selected_target]
+            and st.session_state.direction == TARGET_DIRECTIONS[selected_target]
+        ):
             st.session_state.result_message = f"{selected_target} 지점에 도착했어요!"
             st.session_state.result_success = True
             st.session_state.trees.add(selected_target)
