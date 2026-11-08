@@ -57,7 +57,8 @@ BUILDINGS = [
 ]
 ROAD_X = (265, 509, 753)
 # Every character position is the center of a four-way intersection.
-ROAD_Y = (217, 409, 601)
+# Even levels are beside buildings; odd levels are four-way intersections.
+ROAD_Y = (120, 217, 313, 409, 505, 601)
 DIRECTIONS = ("E", "S", "W", "N")
 ARROWS = {"E": "→", "S": "↓", "W": "←", "N": "↑"}
 PINS = {
@@ -67,13 +68,10 @@ PINS = {
 }
 TARGET_POSITIONS = {
     "A": (0, 0), "B": (0, 0), "C": (2, 0), "D": (2, 0),
-    "E": (0, 1), "F": (0, 1), "G": (2, 1), "H": (2, 1),
-    "I": (0, 2), "J": (2, 2),
+    "E": (0, 2), "F": (0, 2), "G": (2, 2), "H": (2, 2),
+    "I": (0, 4), "J": (2, 4),
 }
-TARGET_DIRECTIONS = {
-    "A": "N", "B": "S", "C": "N", "D": "S", "E": "N",
-    "F": "S", "G": "N", "H": "S", "I": "N", "J": "S",
-}
+TARGET_SIDES = {"A": "left", "B": "right", "C": "left", "D": "right", "E": "left", "F": "right", "G": "left", "H": "right", "I": "left", "J": "right"}
 TARGET_LABELS = tuple(PINS)
 
 
@@ -111,13 +109,15 @@ def map_svg(position, direction, trees):
 
 
 def reset_explorer():
-    st.session_state.position = (1, 2)
+    st.session_state.position = (1, 5)
     st.session_state.direction = "N"
 
 
 def remember_action(action):
     st.session_state.action_snapshots.append((st.session_state.position, st.session_state.direction))
     st.session_state.move_history.append(action)
+    st.session_state.result_message = ""
+    st.session_state.result_success = False
 
 
 def turn(step):
@@ -164,9 +164,44 @@ def grouped_history(history):
     return "\n".join(lines)
 
 
+def target_side_from_position(target, position, direction):
+    lane, _ = position
+    target_x, _ = PINS[target]
+    road_x = ROAD_X[lane]
+    if direction == "N":
+        return "left" if target_x < road_x else "right"
+    if direction == "S":
+        return "right" if target_x < road_x else "left"
+    return None
+
+
+def choose_target_side(target, side):
+    remember_action(f"It's on your {side}.")
+    if target == "선택하세요":
+        st.session_state.result_message = "먼저 목표 지점을 선택해 주세요."
+        st.session_state.result_success = False
+    elif st.session_state.position[1] % 2 == 1:
+        st.session_state.result_message = "건물 옆까지 이동한 뒤 방향을 선택해 주세요."
+        st.session_state.result_success = False
+    elif st.session_state.position != TARGET_POSITIONS[target]:
+        st.session_state.result_message = f"아직 {target} 지점 옆이 아니에요. 이동 기록과 현재 위치를 살펴보세요."
+        st.session_state.result_success = False
+    elif target_side_from_position(target, st.session_state.position, st.session_state.direction) != side:
+        st.session_state.result_message = "목적지가 어느 쪽에 있는지 다시 확인해 보세요."
+        st.session_state.result_success = False
+    elif TARGET_SIDES[target] != side:
+        st.session_state.result_message = "목적지가 어느 쪽에 있는지 다시 확인해 보세요."
+        st.session_state.result_success = False
+    else:
+        st.session_state.result_message = f"{target} 지점에 도착했어요!"
+        st.session_state.result_success = True
+        st.session_state.trees.add(target)
+
+
 for key, default in (
-    ("position", (1, 2)), ("direction", "N"), ("trees", set()), ("last_move", 0.0),
+    ("position", (1, 5)), ("direction", "N"), ("trees", set()), ("last_move", 0.0),
     ("move_history", []), ("action_snapshots", []), ("result_message", ""), ("result_success", False),
+    ("show_side_choice", False),
 ):
     if key not in st.session_state:
         st.session_state[key] = default
@@ -243,6 +278,25 @@ with control_column:
         st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    st.markdown('<div class="panel"><div class="panel-title">목적지 방향 선택</div>', unsafe_allow_html=True)
+    if activity_mode == "발표 듣고 찾기":
+        selected_target = st.selectbox("발표가 끝난 뒤 정답 지점", ("선택하세요",) + TARGET_LABELS, key="answer_target")
+    st.markdown('<div class="hint">이동을 마친 뒤 캐릭터가 바라보는 방향을 기준으로 목적지의 위치를 선택하세요.</div>', unsafe_allow_html=True)
+    if st.button("목적지 방향 선택", use_container_width=True):
+        st.session_state.show_side_choice = True
+        st.rerun()
+    if st.session_state.show_side_choice:
+        side_left, side_right = st.columns(2)
+        with side_left:
+            if st.button("It's on your left.", use_container_width=True):
+                choose_target_side(selected_target, "left")
+                st.rerun()
+        with side_right:
+            if st.button("It's on your right.", use_container_width=True):
+                choose_target_side(selected_target, "right")
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown('<div class="panel"><div class="panel-title">이동 기록</div>', unsafe_allow_html=True)
     if st.session_state.move_history:
         st.markdown(f'<div class="history-box">{grouped_history(st.session_state.move_history)}</div>', unsafe_allow_html=True)
@@ -251,24 +305,6 @@ with control_column:
         st.markdown('<div class="hint">아직 이동 기록이 없습니다.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="panel"><div class="panel-title">도착 확인</div>', unsafe_allow_html=True)
-    if activity_mode == "발표 듣고 찾기":
-        selected_target = st.selectbox("발표가 끝난 뒤 정답 지점", ("선택하세요",) + TARGET_LABELS, key="answer_target")
-    if st.button("도착 확인", use_container_width=True):
-        if selected_target == "선택하세요":
-            st.session_state.result_message = "먼저 목표 지점을 선택해 주세요."
-            st.session_state.result_success = False
-        elif (
-            st.session_state.position == TARGET_POSITIONS[selected_target]
-            and st.session_state.direction == TARGET_DIRECTIONS[selected_target]
-        ):
-            st.session_state.result_message = f"{selected_target} 지점에 도착했어요!"
-            st.session_state.result_success = True
-            st.session_state.trees.add(selected_target)
-        else:
-            st.session_state.result_message = f"아직 {selected_target} 지점이 아니에요. 이동 기록과 현재 위치를 살펴보세요."
-            st.session_state.result_success = False
-        st.rerun()
     if st.session_state.result_message:
         result_class = "result-success" if st.session_state.result_success else "result-failure"
         st.markdown(f'<div class="result-box {result_class}">{st.session_state.result_message}</div>', unsafe_allow_html=True)
