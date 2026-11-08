@@ -28,7 +28,7 @@ st.markdown(
     .status { background: #d7eee1; border-radius: 12px; padding: .8rem 1rem; font-weight: 700; font-size: 1.12rem; margin: .7rem 0 1rem; }
     .direction { color: var(--coral); font-size: 1.65rem; }
     .hint { color: #53645d; font-size: .95rem; line-height: 1.35; }
-    .history-box { background: #f3f6ed; border: 2px dashed #9cb49d; border-radius: 10px; padding: .7rem .85rem; max-height: 12rem; overflow-y: auto; white-space: pre-line; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 1rem; line-height: 1.55; display: flex; flex-direction: column; justify-content: flex-end; }
+    .history-box { background: #f3f6ed; border: 2px dashed #9cb49d; border-radius: 10px; padding: .7rem .85rem; max-height: 12rem; overflow-y: auto; white-space: pre-line; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 1rem; line-height: 1.55; display: flex; flex-direction: column-reverse; }
     .history-line { padding: .08rem .25rem; border-radius: 5px; }
     .history-line.changed { background: #fff1c8; animation: history-highlight 1.8s ease-out; }
     @keyframes history-highlight { from { background: #f4cb62; } to { background: #fff1c8; } }
@@ -253,7 +253,7 @@ def grouped_history(history):
         line_class = "history-line changed" if is_highlighted else "history-line"
         lines.append(f'<div class="{line_class}">{index}. {action}{distance}.</div>')
         raw_index += count
-    return "\n".join(lines)
+    return "\n".join(reversed(lines))
 
 
 def target_side_from_position(target, position, direction):
@@ -355,9 +355,7 @@ with control_column:
     if st.session_state.move_history:
         history_html = grouped_history(st.session_state.move_history)
         st.markdown(
-            f'<div id="history-box" class="history-box">{history_html}</div>'
-            '<script>const box = document.getElementById("history-box"); '
-            'if (box) requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });</script>',
+            f'<div class="history-box">{history_html}</div>',
             unsafe_allow_html=True,
         )
         st.markdown('<div class="hint">연속으로 누른 Go straight는 한 문장으로 묶어 표시합니다.</div>', unsafe_allow_html=True)
